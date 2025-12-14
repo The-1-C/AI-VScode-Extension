@@ -90,8 +90,10 @@ The AI can use these tools:
 - `undo` - Undo last file change
 - `git_status` / `git_diff` / `git_log` - Git integration
 - `get_open_files` - List all open editor tabs
-- `get_project_structure` - Project file tree
+- `get_project_structure` - Project file tree (cached)
 - `get_file_outline` - Get functions/classes in a file
+- `find_file` - Fast file search by name (indexed)
+- `get_cache_stats` - Show cache statistics
 
 ## Safety Features
 
@@ -101,6 +103,14 @@ The AI can use these tools:
 - **Backup before write** - Automatic backups in `.ai-agent/backups/`
 - **Optional confirmation** - Enable `confirmBeforeWrite` to approve changes
 - **Undo support** - Agent can undo its last file change
+
+## Performance
+
+- **File caching** - Recently read files are cached (5 min TTL)
+- **Project tree caching** - Directory structure cached (30 sec TTL)
+- **File indexing** - All files indexed for instant search
+- **File watcher** - Cache auto-invalidates when files change
+- **Smart ignore** - Skips node_modules, .git, dist, etc.
 
 ## Settings
 

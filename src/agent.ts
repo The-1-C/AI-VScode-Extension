@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as cp from 'child_process';
 import { Storage, Thread } from './storage';
 import { Safety } from './safety';
+import { Cache } from './cache';
 
 interface ToolCall {
     id: string;
@@ -44,6 +45,8 @@ CONTEXT:
 - get_open_files() - Get list of all open editor tabs
 - get_project_structure() - Get project file tree structure
 - get_file_outline(path) - Get symbols/outline of a file
+- find_file(name) - Fast search for files by name
+- get_cache_stats() - Show cache statistics
 
 GIT:
 - git_status() - Get git status
@@ -271,6 +274,26 @@ const TOOLS = [
     {
         type: 'function',
         function: {
+            name: 'find_file',
+            description: 'Fast search for files by name',
+            parameters: {
+                type: 'object',
+                properties: { name: { type: 'string', description: 'File name or partial name to search for' } },
+                required: ['name']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_cache_stats',
+            description: 'Get cache statistics (indexed files, cache size)',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'git_status',
             description: 'Get git status of the workspace',
             parameters: { type: 'object', properties: {} }
@@ -311,6 +334,7 @@ export class Agent {
     private abortController?: AbortController;
     private storage: Storage;
     private safety: Safety;
+    private cache: Cache;
     private currentThread: Thread | null = null;
     private onThreadChange?: (thread: Thread | null) => void;
 
@@ -320,6 +344,7 @@ export class Agent {
         this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
         this.storage = new Storage();
         this.safety = new Safety(this.workspaceRoot);
+        this.cache = new Cache(this.workspaceRoot);
         this.initMessages();
     }
 
@@ -589,7 +614,13 @@ export class Agent {
                     const sizeCheck = this.safety.checkFileSize(filePath);
                     if (!sizeCheck.ok) return `Error: ${sizeCheck.reason}`;
                     
-                    return fs.readFileSync(filePath, 'utf-8');
+                    // Check cache first
+                    const cached = this.cache.getFile(filePath);
+                    if (cached) return cached;
+                    
+                    const content = fs.readFileSync(filePath, 'utf-8');
+                    this.cache.setFile(filePath, content);
+                    return content;
                 }
                 case 'write_file': {
                     const filePath = this.resolvePath(args.path);
@@ -669,9 +700,23 @@ export class Agent {
                     return `Open files (${tabs.length}):\n${tabs.map(t => path.relative(this.workspaceRoot, t)).join('\n')}`;
                 }
                 case 'get_project_structure': {
+                    // Check cache first
+                    const cached = this.cache.getProjectTree();
+                    if (cached) return cached;
+                    
                     const maxDepth = args.maxDepth || 3;
                     const tree = this.buildTree(this.workspaceRoot, '', 0, maxDepth);
+                    this.cache.setProjectTree(tree);
                     return tree || '(empty project)';
+                }
+                case 'find_file': {
+                    const results = this.cache.findFiles(args.name);
+                    if (results.length === 0) return `No files found matching "${args.name}"`;
+                    return `Found ${results.length} file(s):\n${results.join('\n')}`;
+                }
+                case 'get_cache_stats': {
+                    const stats = this.cache.getStats();
+                    return `Cache Statistics:\n- Indexed files: ${stats.files}\n- Cache entries: ${stats.cacheEntries}\n- Cache size: ${stats.cacheSize}`;
                 }
                 case 'get_file_outline': {
                     const filePath = this.resolvePath(args.path);
