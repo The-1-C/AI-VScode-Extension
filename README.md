@@ -9,6 +9,11 @@ A local LLM-powered coding agent that runs inside VS Code. Works with LM Studio,
 - 💾 **Persistent Memory** - Remembers context across sessions
 - 📝 **Chat Threads** - Save and switch between conversations
 - ⚡ **Local & Private** - Runs entirely on your machine
+- 📋 **Copy Code** - One-click copy from code blocks
+- 📥 **Export Chat** - Save conversations to markdown
+- 🎯 **Quick Actions** - Right-click to explain, refactor, add tests
+- 🔍 **Project Analysis** - Understands your codebase structure
+- 📊 **Status Bar** - Shows agent status at a glance
 
 ## Quick Install
 
@@ -48,9 +53,11 @@ Press **F5** in VS Code to launch extension in debug mode.
 ### Chat Panel
 - **Ctrl+Shift+A** - Focus chat panel
 - **+** button - New conversation
+- **📥** button - Export chat to markdown
 - **🗑** button - Delete conversation
 - **⏹** button - Stop generation
 - **⚙** button - Open settings
+- **Status bar** - Shows "AI Agent" status at bottom right
 
 ### Keyboard Shortcuts
 | Shortcut | Action |
@@ -82,6 +89,9 @@ The AI can use these tools:
 - `remember` / `recall` / `forget` - Persistent memory
 - `undo` - Undo last file change
 - `git_status` / `git_diff` / `git_log` - Git integration
+- `get_open_files` - List all open editor tabs
+- `get_project_structure` - Project file tree
+- `get_file_outline` - Get functions/classes in a file
 
 ## Safety Features
 

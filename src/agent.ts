@@ -40,6 +40,11 @@ MEMORY (persists across sessions):
 - recall() - Retrieve all remembered facts
 - forget(index) - Remove a remembered fact by index
 
+CONTEXT:
+- get_open_files() - Get list of all open editor tabs
+- get_project_structure() - Get project file tree structure
+- get_file_outline(path) - Get symbols/outline of a file
+
 GIT:
 - git_status() - Get git status
 - git_diff(staged?) - Get git diff (staged=true for staged changes)
@@ -228,6 +233,39 @@ const TOOLS = [
             name: 'undo',
             description: 'Undo the last file change made by the agent',
             parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_open_files',
+            description: 'Get list of all currently open files in VS Code tabs',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_project_structure',
+            description: 'Get project directory tree structure',
+            parameters: {
+                type: 'object',
+                properties: { 
+                    maxDepth: { type: 'number', description: 'Max directory depth (default: 3)' }
+                }
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_file_outline',
+            description: 'Get symbols/outline (functions, classes, etc.) of a file',
+            parameters: {
+                type: 'object',
+                properties: { path: { type: 'string', description: 'File path' } },
+                required: ['path']
+            }
         }
     },
     {
@@ -471,6 +509,63 @@ export class Agent {
         return new RegExp(regexPattern).test(file);
     }
 
+    private buildTree(dir: string, prefix: string, depth: number, maxDepth: number): string {
+        if (depth >= maxDepth) return '';
+        
+        const lines: string[] = [];
+        const ignoreDirs = ['.git', 'node_modules', '.ai-agent', 'out', 'dist', '.vscode', '__pycache__', '.next', 'vendor'];
+        
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true })
+                .filter(e => !e.name.startsWith('.') || e.name === '.env.example')
+                .filter(e => !ignoreDirs.includes(e.name))
+                .sort((a, b) => {
+                    if (a.isDirectory() && !b.isDirectory()) return -1;
+                    if (!a.isDirectory() && b.isDirectory()) return 1;
+                    return a.name.localeCompare(b.name);
+                });
+            
+            entries.forEach((entry, i) => {
+                const isLast = i === entries.length - 1;
+                const connector = isLast ? '└── ' : '├── ';
+                const newPrefix = prefix + (isLast ? '    ' : '│   ');
+                
+                if (entry.isDirectory()) {
+                    lines.push(prefix + connector + entry.name + '/');
+                    lines.push(this.buildTree(path.join(dir, entry.name), newPrefix, depth + 1, maxDepth));
+                } else {
+                    lines.push(prefix + connector + entry.name);
+                }
+            });
+        } catch {}
+        
+        return lines.filter(l => l).join('\n');
+    }
+
+    private formatSymbols(symbols: vscode.DocumentSymbol[], indent: number): string {
+        const lines: string[] = [];
+        const kindNames: Record<number, string> = {
+            [vscode.SymbolKind.Function]: 'function',
+            [vscode.SymbolKind.Method]: 'method',
+            [vscode.SymbolKind.Class]: 'class',
+            [vscode.SymbolKind.Interface]: 'interface',
+            [vscode.SymbolKind.Variable]: 'var',
+            [vscode.SymbolKind.Constant]: 'const',
+            [vscode.SymbolKind.Property]: 'prop',
+            [vscode.SymbolKind.Constructor]: 'constructor',
+        };
+        
+        for (const sym of symbols) {
+            const kind = kindNames[sym.kind] || 'symbol';
+            const pad = '  '.repeat(indent);
+            lines.push(`${pad}${kind} ${sym.name} (line ${sym.range.start.line + 1})`);
+            if (sym.children?.length) {
+                lines.push(this.formatSymbols(sym.children, indent + 1));
+            }
+        }
+        return lines.join('\n');
+    }
+
     private async executeTool(name: string, args: Record<string, any>): Promise<string> {
         try {
             switch (name) {
@@ -564,6 +659,32 @@ export class Agent {
                 case 'undo': {
                     const result = this.safety.undoLastChange();
                     return result.success ? `✓ ${result.message}` : `Error: ${result.message}`;
+                }
+                case 'get_open_files': {
+                    const tabs = vscode.window.tabGroups.all
+                        .flatMap(g => g.tabs)
+                        .filter(t => t.input instanceof vscode.TabInputText)
+                        .map(t => (t.input as vscode.TabInputText).uri.fsPath);
+                    if (tabs.length === 0) return 'No files open';
+                    return `Open files (${tabs.length}):\n${tabs.map(t => path.relative(this.workspaceRoot, t)).join('\n')}`;
+                }
+                case 'get_project_structure': {
+                    const maxDepth = args.maxDepth || 3;
+                    const tree = this.buildTree(this.workspaceRoot, '', 0, maxDepth);
+                    return tree || '(empty project)';
+                }
+                case 'get_file_outline': {
+                    const filePath = this.resolvePath(args.path);
+                    const uri = vscode.Uri.file(filePath);
+                    try {
+                        const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                            'vscode.executeDocumentSymbolProvider', uri
+                        );
+                        if (!symbols || symbols.length === 0) return 'No symbols found';
+                        return this.formatSymbols(symbols, 0);
+                    } catch {
+                        return 'Could not get symbols for this file';
+                    }
                 }
                 case 'git_status': {
                     try {

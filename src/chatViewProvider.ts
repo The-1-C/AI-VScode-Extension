@@ -6,22 +6,45 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'ai-agent.chatView';
     private webviewView?: vscode.WebviewView;
     private agent: Agent;
+    private statusBar: vscode.StatusBarItem;
 
     constructor(private readonly extensionUri: vscode.Uri) {
         this.agent = new Agent(
             (msg) => this.postMessage({ type: 'response', text: msg }),
             (thread) => this.postMessage({ type: 'threadChanged', thread })
         );
+        this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        this.statusBar.text = '$(hubot) AI Agent';
+        this.statusBar.tooltip = 'AI Agent - Click to open';
+        this.statusBar.command = 'ai-agent.chat';
+        this.statusBar.show();
     }
 
     private postMessage(message: any) {
         this.webviewView?.webview.postMessage(message);
     }
 
+    private setStatus(status: 'idle' | 'thinking' | 'error') {
+        switch (status) {
+            case 'thinking':
+                this.statusBar.text = '$(loading~spin) AI Thinking...';
+                this.statusBar.backgroundColor = undefined;
+                break;
+            case 'error':
+                this.statusBar.text = '$(error) AI Error';
+                this.statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+                break;
+            default:
+                this.statusBar.text = '$(hubot) AI Agent';
+                this.statusBar.backgroundColor = undefined;
+        }
+    }
+
     stop() {
         this.agent.stop();
         this.postMessage({ type: 'response', text: '⏹️ Stopped' });
         this.postMessage({ type: 'done' });
+        this.setStatus('idle');
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -32,8 +55,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
                 case 'send':
-                    await this.agent.chat(data.text);
+                    this.setStatus('thinking');
+                    try {
+                        await this.agent.chat(data.text);
+                    } catch (e) {
+                        this.setStatus('error');
+                    }
                     this.postMessage({ type: 'done' });
+                    this.setStatus('idle');
                     break;
                 case 'clear':
                     this.agent.clearHistory();
@@ -58,13 +87,52 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'openSettings':
                     vscode.commands.executeCommand('workbench.action.openSettings', 'ai-agent');
                     break;
+                case 'exportChat':
+                    await this.exportChat();
+                    break;
+                case 'copyCode':
+                    await vscode.env.clipboard.writeText(data.code);
+                    vscode.window.showInformationMessage('Code copied to clipboard');
+                    break;
             }
         });
 
-        // Send initial threads list
         setTimeout(() => {
             this.postMessage({ type: 'threadsUpdated', threads: this.agent.listThreads() });
         }, 100);
+    }
+
+    private async exportChat() {
+        const thread = this.agent.getCurrentThread();
+        if (!thread) {
+            vscode.window.showWarningMessage('No active chat to export');
+            return;
+        }
+
+        const markdown = this.threadToMarkdown(thread);
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(`chat-${Date.now()}.md`),
+            filters: { 'Markdown': ['md'] }
+        });
+
+        if (uri) {
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(markdown, 'utf-8'));
+            vscode.window.showInformationMessage(`Chat exported to ${uri.fsPath}`);
+        }
+    }
+
+    private threadToMarkdown(thread: Thread): string {
+        let md = `# ${thread.title}\n\n`;
+        md += `*Exported: ${new Date().toLocaleString()}*\n\n---\n\n`;
+        
+        for (const msg of thread.messages) {
+            if (msg.role === 'user') {
+                md += `## 👤 User\n\n${msg.content}\n\n`;
+            } else if (msg.role === 'assistant' && msg.content) {
+                md += `## 🤖 Assistant\n\n${msg.content}\n\n`;
+            }
+        }
+        return md;
     }
 
     private getThreadMessages(): any[] {
@@ -88,30 +156,37 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 .header-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 #stop { display: none; border-color: var(--vscode-inputValidation-warningBorder); }
 #messages { flex: 1; overflow-y: auto; padding: 8px; }
-.msg { margin: 6px 0; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.95em; line-height: 1.4; }
-.user { background: var(--vscode-input-background); border-left: 3px solid var(--vscode-inputOption-activeBorder); }
+.msg { margin: 6px 0; padding: 10px; border-radius: 6px; font-size: 0.95em; line-height: 1.5; position: relative; }
+.user { background: var(--vscode-input-background); border-left: 3px solid var(--vscode-inputOption-activeBorder); white-space: pre-wrap; }
 .assistant { background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); }
-.tool { font-size: 0.85em; color: var(--vscode-descriptionForeground); padding: 4px 8px; font-family: var(--vscode-editor-font-family); background: var(--vscode-editor-background); border-radius: 4px; margin: 2px 0; }
+.tool { font-size: 0.85em; color: var(--vscode-descriptionForeground); padding: 4px 8px; font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); border-radius: 4px; margin: 2px 0; white-space: pre-wrap; word-break: break-all; }
 .status { font-size: 0.85em; color: var(--vscode-descriptionForeground); font-style: italic; padding: 4px 8px; }
-.assistant code { background: var(--vscode-textCodeBlock-background); padding: 1px 4px; border-radius: 3px; font-family: var(--vscode-editor-font-family); }
-.assistant pre { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 4px; overflow-x: auto; margin: 4px 0; }
-.assistant pre code { padding: 0; background: none; }
+.code-block { position: relative; margin: 8px 0; }
+.code-block pre { background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: 4px; overflow-x: auto; margin: 0; }
+.code-block code { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-editor-foreground); }
+.code-header { display: flex; justify-content: space-between; align-items: center; background: var(--vscode-editor-background); padding: 4px 8px; border-radius: 4px 4px 0 0; border: 1px solid var(--vscode-panel-border); border-bottom: none; }
+.code-lang { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+.copy-btn { padding: 2px 8px; font-size: 0.75em; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; cursor: pointer; }
+.copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.inline-code { background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
 #input-area { display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--vscode-panel-border); }
-#input { flex: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; resize: none; font-family: inherit; }
-#send { padding: 8px 16px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; }
+#input { flex: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; resize: none; font-family: inherit; min-height: 60px; }
+#send { padding: 8px 16px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; align-self: flex-end; }
 #send:hover { background: var(--vscode-button-hoverBackground); }
 #send:disabled { opacity: 0.5; cursor: not-allowed; }
+.typing { display: inline-block; }
+.typing::after { content: '▋'; animation: blink 1s infinite; }
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 </style>
 </head>
 <body>
 <div id="header">
     <div id="thread-selector">
-        <select id="thread-select">
-            <option value="">New Chat</option>
-        </select>
+        <select id="thread-select"><option value="">New Chat</option></select>
     </div>
     <div class="header-btns">
         <button id="new" class="header-btn" title="New chat">+</button>
+        <button id="export" class="header-btn" title="Export chat">📥</button>
         <button id="delete" class="header-btn" title="Delete chat">🗑</button>
         <button id="stop" class="header-btn" title="Stop">⏹</button>
         <button id="settings" class="header-btn" title="Settings">⚙</button>
@@ -119,7 +194,7 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 </div>
 <div id="messages"></div>
 <div id="input-area">
-    <textarea id="input" rows="2" placeholder="Ask something... (Ctrl+Shift+A)"></textarea>
+    <textarea id="input" rows="3" placeholder="Ask something... (Ctrl+Shift+A)"></textarea>
     <button id="send">Send</button>
 </div>
 <script>
@@ -130,6 +205,7 @@ const sendBtn = document.getElementById('send');
 const stopBtn = document.getElementById('stop');
 const newBtn = document.getElementById('new');
 const deleteBtn = document.getElementById('delete');
+const exportBtn = document.getElementById('export');
 const threadSelect = document.getElementById('thread-select');
 const settingsBtn = document.getElementById('settings');
 
@@ -141,10 +217,26 @@ function escapeHtml(text) {
 }
 
 function renderMarkdown(text) {
-    text = text.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>');
-    text = text.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
-    text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+    // Code blocks with copy button
+    text = text.replace(/\`\`\`(\w*)\n([\s\S]*?)\`\`\`/g, (match, lang, code) => {
+        const escaped = escapeHtml(code.trim());
+        const langLabel = lang || 'code';
+        return '<div class="code-block"><div class="code-header"><span class="code-lang">' + langLabel + '</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>' + escaped + '</code></pre></div>';
+    });
+    // Inline code
+    text = text.replace(/\`([^\`]+)\`/g, '<code class="inline-code">$1</code>');
+    // Bold
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Line breaks
+    text = text.replace(/\n/g, '<br>');
     return text;
+}
+
+function copyCode(btn) {
+    const code = btn.parentElement.nextElementSibling.textContent;
+    vscode.postMessage({ type: 'copyCode', code });
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
 }
 
 function addMessage(text, cls, raw = false) {
@@ -153,7 +245,7 @@ function addMessage(text, cls, raw = false) {
     if (raw || cls === 'tool' || cls === 'status' || cls === 'user') {
         div.textContent = text;
     } else {
-        div.innerHTML = renderMarkdown(escapeHtml(text));
+        div.innerHTML = renderMarkdown(text);
     }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
@@ -162,6 +254,16 @@ function addMessage(text, cls, raw = false) {
 function setLoading(loading) {
     sendBtn.disabled = loading;
     stopBtn.style.display = loading ? 'inline-block' : 'none';
+    if (loading) {
+        const typing = document.createElement('div');
+        typing.className = 'msg status typing';
+        typing.id = 'typing-indicator';
+        typing.textContent = 'Thinking';
+        messages.appendChild(typing);
+        messages.scrollTop = messages.scrollHeight;
+    } else {
+        document.getElementById('typing-indicator')?.remove();
+    }
 }
 
 function updateThreadSelect() {
@@ -190,6 +292,8 @@ newBtn.onclick = () => {
     threadSelect.value = '';
     vscode.postMessage({ type: 'newThread' });
 };
+
+exportBtn.onclick = () => vscode.postMessage({ type: 'exportChat' });
 
 deleteBtn.onclick = () => {
     if (currentThreadId && confirm('Delete this chat?')) {
@@ -226,10 +330,11 @@ window.addEventListener('message', (e) => {
     const data = e.data;
     switch (data.type) {
         case 'response': {
+            document.getElementById('typing-indicator')?.remove();
             let cls = 'assistant';
             const text = data.text;
             if (text.startsWith('🔧') || text.startsWith('   ') || text.startsWith('✓')) cls = 'tool';
-            else if (text.startsWith('[') || text.startsWith('⚠️') || text.startsWith('❌') || text.startsWith('⏹️')) cls = 'status';
+            else if (text.startsWith('[') || text.startsWith('⚠️') || text.startsWith('❌') || text.startsWith('⏹️') || text.startsWith('🚫')) cls = 'status';
             addMessage(text, cls);
             break;
         }
@@ -262,8 +367,18 @@ vscode.postMessage({ type: 'getThreads' });
     }
 
     async sendMessage(text: string) {
+        this.setStatus('thinking');
         this.postMessage({ type: 'response', text: `You: ${text}` });
-        await this.agent.chat(text);
+        try {
+            await this.agent.chat(text);
+        } catch (e) {
+            this.setStatus('error');
+        }
         this.postMessage({ type: 'done' });
+        this.setStatus('idle');
+    }
+
+    dispose() {
+        this.statusBar.dispose();
     }
 }
