@@ -65,6 +65,16 @@ The AI can use these tools:
 - `get_diagnostics` - Get VS Code errors/warnings
 - `run_command` - Execute shell commands
 - `remember` / `recall` / `forget` - Persistent memory
+- `undo` - Undo last file change
+
+## Safety Features
+
+- **Path protection** - Cannot access files outside workspace or .git
+- **Dangerous command blocking** - Blocks rm -rf, format, etc.
+- **File size limits** - Won't read files over 1MB
+- **Backup before write** - Automatic backups in `.ai-agent/backups/`
+- **Optional confirmation** - Enable `confirmBeforeWrite` to approve changes
+- **Undo support** - Agent can undo its last file change
 
 ## Settings
 
@@ -80,6 +90,8 @@ Open settings with **⚙** button or `Ctrl+,` → search "ai-agent"
 | `autoSave` | `true` | Auto-save chat threads |
 | `showToolCalls` | `true` | Show tool usage in chat |
 | `systemPromptAddition` | `""` | Custom instructions |
+| `confirmBeforeWrite` | `false` | Ask before writing files |
+| `backupBeforeWrite` | `true` | Backup files before overwriting |
 
 ### Using with Other Providers
 

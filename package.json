@@ -116,6 +116,16 @@
           "type": "boolean",
           "default": true,
           "description": "Show tool calls in chat"
+        },
+        "ai-agent.confirmBeforeWrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask for confirmation before writing files"
+        },
+        "ai-agent.backupBeforeWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create backup before overwriting files"
         }
       }
     }

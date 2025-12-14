@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
 import { Storage, Thread } from './storage';
+import { Safety } from './safety';
 
 interface ToolCall {
     id: string;
@@ -40,7 +41,8 @@ MEMORY (persists across sessions):
 - forget(index) - Remove a remembered fact by index
 
 SYSTEM:
-- run_command(cmd) - Run shell command
+- run_command(cmd) - Run shell command (dangerous commands are blocked)
+- undo() - Undo the last file change
 
 GUIDELINES:
 1. Read files before modifying them
@@ -214,6 +216,14 @@ const TOOLS = [
                 required: ['index']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'undo',
+            description: 'Undo the last file change made by the agent',
+            parameters: { type: 'object', properties: {} }
+        }
     }
 ];
 
@@ -223,6 +233,7 @@ export class Agent {
     private workspaceRoot: string;
     private abortController?: AbortController;
     private storage: Storage;
+    private safety: Safety;
     private currentThread: Thread | null = null;
     private onThreadChange?: (thread: Thread | null) => void;
 
@@ -231,6 +242,7 @@ export class Agent {
         this.onThreadChange = onThreadChange;
         this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
         this.storage = new Storage();
+        this.safety = new Safety(this.workspaceRoot);
         this.initMessages();
     }
 
@@ -333,7 +345,9 @@ export class Agent {
             timeout: config.get<number>('timeout') ?? 120000,
             autoSave: config.get<boolean>('autoSave') ?? true,
             systemPromptAddition: config.get<string>('systemPromptAddition') || '',
-            showToolCalls: config.get<boolean>('showToolCalls') ?? true
+            showToolCalls: config.get<boolean>('showToolCalls') ?? true,
+            confirmBeforeWrite: config.get<boolean>('confirmBeforeWrite') ?? false,
+            backupBeforeWrite: config.get<boolean>('backupBeforeWrite') ?? true
         };
     }
 
@@ -432,19 +446,60 @@ export class Agent {
                 }
                 case 'read_file': {
                     const filePath = this.resolvePath(args.path);
+                    
+                    const pathCheck = this.safety.isPathSafe(filePath);
+                    if (!pathCheck.safe) return `Error: ${pathCheck.reason}`;
+                    
                     if (!fs.existsSync(filePath)) return `Error: File not found: ${args.path}`;
+                    
+                    const sizeCheck = this.safety.checkFileSize(filePath);
+                    if (!sizeCheck.ok) return `Error: ${sizeCheck.reason}`;
+                    
                     return fs.readFileSync(filePath, 'utf-8');
                 }
                 case 'write_file': {
                     const filePath = this.resolvePath(args.path);
+                    
+                    const pathCheck = this.safety.isPathSafe(filePath);
+                    if (!pathCheck.safe) return `Error: ${pathCheck.reason}`;
+                    
+                    const config = this.getConfig();
+                    const exists = fs.existsSync(filePath);
+                    const oldContent = exists ? fs.readFileSync(filePath, 'utf-8') : null;
+                    
+                    if (config.confirmBeforeWrite) {
+                        const confirmed = await this.safety.confirmWrite(filePath, args.content);
+                        if (!confirmed) return 'Write cancelled by user';
+                    }
+                    
+                    if (exists && config.backupBeforeWrite) {
+                        await this.safety.backupFile(filePath);
+                    }
+                    
                     fs.mkdirSync(path.dirname(filePath), { recursive: true });
                     fs.writeFileSync(filePath, args.content, 'utf-8');
+                    
+                    this.safety.recordChange(filePath, oldContent, args.content);
+                    
                     return `✓ Written: ${args.path}`;
                 }
                 case 'delete_file': {
                     const filePath = this.resolvePath(args.path);
+                    
+                    const pathCheck = this.safety.isPathSafe(filePath);
+                    if (!pathCheck.safe) return `Error: ${pathCheck.reason}`;
+                    
                     if (!fs.existsSync(filePath)) return `Error: Not found: ${args.path}`;
+                    
+                    const config = this.getConfig();
+                    if (config.backupBeforeWrite) {
+                        await this.safety.backupFile(filePath);
+                    }
+                    
+                    const oldContent = fs.readFileSync(filePath, 'utf-8');
                     fs.unlinkSync(filePath);
+                    this.safety.recordChange(filePath, oldContent, '');
+                    
                     return `✓ Deleted: ${args.path}`;
                 }
                 case 'search_files': {
@@ -453,6 +508,9 @@ export class Agent {
                     return results.length ? results.join('\n') : 'No matches found';
                 }
                 case 'run_command': {
+                    const cmdCheck = this.safety.isCommandSafe(args.cmd);
+                    if (!cmdCheck.safe) return `🚫 Blocked: ${cmdCheck.reason}`;
+                    
                     try {
                         const result = cp.execSync(args.cmd, { 
                             cwd: this.workspaceRoot,
@@ -463,6 +521,10 @@ export class Agent {
                     } catch (e: any) {
                         return `Exit ${e.status}: ${e.stderr || e.stdout || e.message}`;
                     }
+                }
+                case 'undo': {
+                    const result = this.safety.undoLastChange();
+                    return result.success ? `✓ ${result.message}` : `Error: ${result.message}`;
                 }
                 case 'get_active_file': {
                     const editor = vscode.window.activeTextEditor;
