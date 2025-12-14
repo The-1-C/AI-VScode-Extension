@@ -70,6 +70,10 @@
       {
         "command": "ai-agent.stop",
         "title": "AI Agent: Stop"
+      },
+      {
+        "command": "ai-agent.testConnection",
+        "title": "AI Agent: Test Connection"
       }
     ],
     "keybindings": [

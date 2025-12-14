@@ -126,6 +126,16 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('ai-agent.stop', () => {
             chatViewProvider.stop();
+        }),
+
+        vscode.commands.registerCommand('ai-agent.testConnection', async () => {
+            await vscode.commands.executeCommand('ai-agent.chatView.focus');
+            const result = await chatViewProvider.testConnection();
+            if (result.success) {
+                vscode.window.showInformationMessage(`✓ ${result.message}`);
+            } else {
+                vscode.window.showErrorMessage(result.message);
+            }
         })
     );
 

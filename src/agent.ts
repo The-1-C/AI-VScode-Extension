@@ -453,32 +453,70 @@ export class Agent {
         };
     }
 
-    private async callLLM(): Promise<any> {
+    async testConnection(): Promise<{ success: boolean; message: string }> {
         const config = this.getConfig();
-        this.abortController = new AbortController();
-        this.log(`[Calling LLM...]`);
-        
-        const timeoutId = setTimeout(() => this.abortController?.abort(), config.timeout);
-        
         try {
             const response = await fetch(config.apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: config.model,
-                    messages: this.messages,
-                    tools: TOOLS,
-                    tool_choice: 'auto',
-                    temperature: config.temperature,
-                    max_tokens: config.maxTokens
-                }),
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 10
+                })
+            });
+            
+            if (!response.ok) {
+                const text = await response.text();
+                return { success: false, message: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+            }
+            
+            const data: any = await response.json();
+            if (data.error) {
+                return { success: false, message: `API Error: ${data.error.message || JSON.stringify(data.error)}` };
+            }
+            
+            return { success: true, message: `Connected to ${config.apiUrl}\nModel: ${config.model}` };
+        } catch (e: any) {
+            return { success: false, message: `Connection failed: ${e.message}\n\nMake sure LM Studio is running and the server is started on port 1234.` };
+        }
+    }
+
+    private async callLLM(): Promise<any> {
+        const config = this.getConfig();
+        this.abortController = new AbortController();
+        this.log(`[Connecting to ${config.apiUrl}...]`);
+        
+        const timeoutId = setTimeout(() => this.abortController?.abort(), config.timeout);
+        
+        try {
+            const body = {
+                model: config.model,
+                messages: this.messages,
+                tools: TOOLS,
+                tool_choice: 'auto',
+                temperature: config.temperature,
+                max_tokens: config.maxTokens
+            };
+            
+            console.log('[AI Agent] Request:', config.apiUrl, 'Messages:', this.messages.length);
+            
+            const response = await fetch(config.apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
                 signal: this.abortController.signal
             });
             
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const errorText = await response.text();
+                console.error('[AI Agent] HTTP Error:', response.status, errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 200)}`);
             }
-            return response.json();
+            
+            const data: any = await response.json();
+            console.log('[AI Agent] Response received:', data.choices?.[0]?.message?.content?.slice(0, 100) || 'tool call');
+            return data;
         } finally {
             clearTimeout(timeoutId);
         }

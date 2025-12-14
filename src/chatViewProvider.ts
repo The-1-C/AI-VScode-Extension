@@ -47,6 +47,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.setStatus('idle');
     }
 
+    async testConnection(): Promise<{ success: boolean; message: string }> {
+        return this.agent.testConnection();
+    }
+
     resolveWebviewView(webviewView: vscode.WebviewView) {
         this.webviewView = webviewView;
         webviewView.webview.options = { enableScripts: true };
@@ -86,6 +90,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openSettings':
                     vscode.commands.executeCommand('workbench.action.openSettings', 'ai-agent');
+                    break;
+                case 'testConnection':
+                    const result = await this.agent.testConnection();
+                    if (result.success) {
+                        vscode.window.showInformationMessage(`✓ ${result.message}`);
+                    } else {
+                        vscode.window.showErrorMessage(result.message);
+                    }
+                    this.postMessage({ type: 'response', text: result.success ? `✓ ${result.message}` : `❌ ${result.message}` });
                     break;
                 case 'exportChat':
                     await this.exportChat();
@@ -186,6 +199,7 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
     </div>
     <div class="header-btns">
         <button id="new" class="header-btn" title="New chat">+</button>
+        <button id="test" class="header-btn" title="Test connection">🔌</button>
         <button id="export" class="header-btn" title="Export chat">📥</button>
         <button id="delete" class="header-btn" title="Delete chat">🗑</button>
         <button id="stop" class="header-btn" title="Stop">⏹</button>
@@ -204,6 +218,7 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const stopBtn = document.getElementById('stop');
 const newBtn = document.getElementById('new');
+const testBtn = document.getElementById('test');
 const deleteBtn = document.getElementById('delete');
 const exportBtn = document.getElementById('export');
 const threadSelect = document.getElementById('thread-select');
@@ -294,6 +309,7 @@ newBtn.onclick = () => {
 };
 
 exportBtn.onclick = () => vscode.postMessage({ type: 'exportChat' });
+testBtn.onclick = () => vscode.postMessage({ type: 'testConnection' });
 
 deleteBtn.onclick = () => {
     if (currentThreadId && confirm('Delete this chat?')) {
