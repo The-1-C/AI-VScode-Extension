@@ -42,7 +42,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     stop() {
         this.agent.stop();
-        this.postMessage({ type: 'response', text: '⏹️ Stopped' });
+        this.postMessage({ type: 'response', text: 'Stopped' });
         this.postMessage({ type: 'done' });
         this.setStatus('idle');
     }
@@ -57,56 +57,62 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this.getHtml();
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
-            switch (data.type) {
-                case 'send':
-                    this.setStatus('thinking');
-                    try {
+            console.log('[AI Agent] Received message:', data.type);
+            try {
+                switch (data.type) {
+                    case 'send':
+                        this.setStatus('thinking');
                         await this.agent.chat(data.text);
-                    } catch (e) {
-                        this.setStatus('error');
-                    }
-                    this.postMessage({ type: 'done' });
-                    this.setStatus('idle');
-                    break;
-                case 'clear':
-                    this.agent.clearHistory();
-                    break;
-                case 'stop':
-                    this.stop();
-                    break;
-                case 'newThread':
-                    this.agent.newThread();
-                    break;
-                case 'loadThread':
-                    this.agent.loadThread(data.id);
-                    this.postMessage({ type: 'threadLoaded', messages: this.getThreadMessages() });
-                    break;
-                case 'deleteThread':
-                    this.agent.deleteThread(data.id);
-                    this.postMessage({ type: 'threadsUpdated', threads: this.agent.listThreads() });
-                    break;
-                case 'getThreads':
-                    this.postMessage({ type: 'threadsUpdated', threads: this.agent.listThreads() });
-                    break;
-                case 'openSettings':
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'ai-agent');
-                    break;
-                case 'testConnection':
-                    const result = await this.agent.testConnection();
-                    if (result.success) {
-                        vscode.window.showInformationMessage(`✓ ${result.message}`);
-                    } else {
-                        vscode.window.showErrorMessage(result.message);
-                    }
-                    this.postMessage({ type: 'response', text: result.success ? `✓ ${result.message}` : `❌ ${result.message}` });
-                    break;
-                case 'exportChat':
-                    await this.exportChat();
-                    break;
-                case 'copyCode':
-                    await vscode.env.clipboard.writeText(data.code);
-                    vscode.window.showInformationMessage('Code copied to clipboard');
-                    break;
+                        this.postMessage({ type: 'done' });
+                        this.setStatus('idle');
+                        break;
+                    case 'clear':
+                        this.agent.clearHistory();
+                        break;
+                    case 'stop':
+                        this.stop();
+                        break;
+                    case 'newThread':
+                        this.agent.newThread();
+                        this.postMessage({ type: 'response', text: 'New chat started' });
+                        break;
+                    case 'loadThread':
+                        this.agent.loadThread(data.id);
+                        this.postMessage({ type: 'threadLoaded', messages: this.getThreadMessages() });
+                        break;
+                    case 'deleteThread':
+                        this.agent.deleteThread(data.id);
+                        this.postMessage({ type: 'threadsUpdated', threads: this.agent.listThreads() });
+                        break;
+                    case 'getThreads':
+                        this.postMessage({ type: 'threadsUpdated', threads: this.agent.listThreads() });
+                        break;
+                    case 'openSettings':
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'ai-agent');
+                        break;
+                    case 'testConnection':
+                        this.postMessage({ type: 'response', text: 'Testing connection...' });
+                        const result = await this.agent.testConnection();
+                        if (result.success) {
+                            vscode.window.showInformationMessage(result.message);
+                            this.postMessage({ type: 'response', text: 'SUCCESS: ' + result.message });
+                        } else {
+                            vscode.window.showErrorMessage(result.message);
+                            this.postMessage({ type: 'response', text: 'FAILED: ' + result.message });
+                        }
+                        break;
+                    case 'exportChat':
+                        await this.exportChat();
+                        break;
+                    case 'copyCode':
+                        await vscode.env.clipboard.writeText(data.code);
+                        vscode.window.showInformationMessage('Code copied to clipboard');
+                        break;
+                }
+            } catch (e: any) {
+                console.error('[AI Agent] Error:', e);
+                this.postMessage({ type: 'response', text: 'Error: ' + e.message });
+                this.setStatus('error');
             }
         });
 
@@ -140,9 +146,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         
         for (const msg of thread.messages) {
             if (msg.role === 'user') {
-                md += `## 👤 User\n\n${msg.content}\n\n`;
+                md += `## User\n\n${msg.content}\n\n`;
             } else if (msg.role === 'assistant' && msg.content) {
-                md += `## 🤖 Assistant\n\n${msg.content}\n\n`;
+                md += `## Assistant\n\n${msg.content}\n\n`;
             }
         }
         return md;
@@ -160,223 +166,271 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <head>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); display: flex; flex-direction: column; height: 100vh; }
-#header { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); }
-#thread-selector { flex: 1; margin-right: 8px; }
-#thread-select { width: 100%; padding: 4px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; }
-.header-btns { display: flex; gap: 4px; }
-.header-btn { padding: 4px 8px; background: transparent; color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; cursor: pointer; font-size: 0.85em; }
-.header-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-#stop { display: none; border-color: var(--vscode-inputValidation-warningBorder); }
-#messages { flex: 1; overflow-y: auto; padding: 8px; }
-.msg { margin: 6px 0; padding: 10px; border-radius: 6px; font-size: 0.95em; line-height: 1.5; position: relative; }
-.user { background: var(--vscode-input-background); border-left: 3px solid var(--vscode-inputOption-activeBorder); white-space: pre-wrap; }
-.assistant { background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); }
-.tool { font-size: 0.85em; color: var(--vscode-descriptionForeground); padding: 4px 8px; font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); border-radius: 4px; margin: 2px 0; white-space: pre-wrap; word-break: break-all; }
-.status { font-size: 0.85em; color: var(--vscode-descriptionForeground); font-style: italic; padding: 4px 8px; }
-.code-block { position: relative; margin: 8px 0; }
-.code-block pre { background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: 4px; overflow-x: auto; margin: 0; }
-.code-block code { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-editor-foreground); }
-.code-header { display: flex; justify-content: space-between; align-items: center; background: var(--vscode-editor-background); padding: 4px 8px; border-radius: 4px 4px 0 0; border: 1px solid var(--vscode-panel-border); border-bottom: none; }
-.code-lang { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-.copy-btn { padding: 2px 8px; font-size: 0.75em; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; cursor: pointer; }
-.copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-.inline-code { background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
-#input-area { display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--vscode-panel-border); }
-#input { flex: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; resize: none; font-family: inherit; min-height: 60px; }
-#send { padding: 8px 16px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; align-self: flex-end; }
+body { 
+    font-family: var(--vscode-font-family); 
+    font-size: var(--vscode-font-size); 
+    display: flex; 
+    flex-direction: column; 
+    height: 100vh;
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+}
+#header { 
+    display: flex; 
+    gap: 8px;
+    padding: 8px; 
+    border-bottom: 1px solid var(--vscode-panel-border);
+    align-items: center;
+}
+#thread-select { 
+    flex: 1;
+    padding: 4px 8px; 
+    background: var(--vscode-input-background); 
+    color: var(--vscode-input-foreground); 
+    border: 1px solid var(--vscode-input-border); 
+    border-radius: 4px; 
+}
+.btn { 
+    padding: 4px 8px; 
+    background: var(--vscode-button-secondaryBackground); 
+    color: var(--vscode-button-secondaryForeground); 
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer; 
+    font-size: 12px;
+}
+.btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#messages { 
+    flex: 1; 
+    overflow-y: auto; 
+    padding: 8px; 
+}
+.msg { 
+    margin: 8px 0; 
+    padding: 10px; 
+    border-radius: 6px; 
+    font-size: 13px; 
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.user { 
+    background: var(--vscode-input-background); 
+    border-left: 3px solid var(--vscode-focusBorder); 
+}
+.assistant { 
+    background: var(--vscode-editor-background); 
+    border: 1px solid var(--vscode-panel-border); 
+}
+.tool { 
+    font-size: 11px; 
+    color: var(--vscode-descriptionForeground); 
+    padding: 4px 8px; 
+    font-family: monospace;
+    background: var(--vscode-textBlockQuote-background);
+    border-radius: 4px;
+    margin: 4px 0;
+}
+.status { 
+    font-size: 11px; 
+    color: var(--vscode-descriptionForeground); 
+    font-style: italic; 
+    padding: 4px 8px; 
+}
+#input-area { 
+    display: flex; 
+    gap: 8px; 
+    padding: 8px; 
+    border-top: 1px solid var(--vscode-panel-border); 
+}
+#input { 
+    flex: 1; 
+    padding: 8px; 
+    border: 1px solid var(--vscode-input-border); 
+    background: var(--vscode-input-background); 
+    color: var(--vscode-input-foreground); 
+    border-radius: 4px; 
+    resize: none; 
+    font-family: inherit;
+    font-size: 13px;
+}
+#send { 
+    padding: 8px 16px; 
+    background: var(--vscode-button-background); 
+    color: var(--vscode-button-foreground); 
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    font-weight: 500;
+}
 #send:hover { background: var(--vscode-button-hoverBackground); }
 #send:disabled { opacity: 0.5; cursor: not-allowed; }
-.typing { display: inline-block; }
-.typing::after { content: '▋'; animation: blink 1s infinite; }
-@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+pre { 
+    background: var(--vscode-textBlockQuote-background); 
+    padding: 8px; 
+    border-radius: 4px; 
+    overflow-x: auto; 
+    margin: 8px 0;
+}
+code { 
+    font-family: var(--vscode-editor-font-family); 
+    font-size: 12px; 
+}
 </style>
 </head>
 <body>
 <div id="header">
-    <div id="thread-selector">
-        <select id="thread-select"><option value="">New Chat</option></select>
-    </div>
-    <div class="header-btns">
-        <button id="new" class="header-btn" title="New chat">+</button>
-        <button id="test" class="header-btn" title="Test connection">🔌</button>
-        <button id="export" class="header-btn" title="Export chat">📥</button>
-        <button id="delete" class="header-btn" title="Delete chat">🗑</button>
-        <button id="stop" class="header-btn" title="Stop">⏹</button>
-        <button id="settings" class="header-btn" title="Settings">⚙</button>
-    </div>
+    <select id="thread-select"><option value="">New Chat</option></select>
+    <button class="btn" id="btnNew" title="New Chat">New</button>
+    <button class="btn" id="btnTest" title="Test Connection">Test</button>
+    <button class="btn" id="btnSettings" title="Settings">Settings</button>
 </div>
 <div id="messages"></div>
 <div id="input-area">
-    <textarea id="input" rows="3" placeholder="Ask something... (Ctrl+Shift+A)"></textarea>
+    <textarea id="input" rows="3" placeholder="Type a message..."></textarea>
     <button id="send">Send</button>
 </div>
 <script>
-const vscode = acquireVsCodeApi();
-const messages = document.getElementById('messages');
-const input = document.getElementById('input');
-const sendBtn = document.getElementById('send');
-const stopBtn = document.getElementById('stop');
-const newBtn = document.getElementById('new');
-const testBtn = document.getElementById('test');
-const deleteBtn = document.getElementById('delete');
-const exportBtn = document.getElementById('export');
-const threadSelect = document.getElementById('thread-select');
-const settingsBtn = document.getElementById('settings');
+(function() {
+    const vscode = acquireVsCodeApi();
+    
+    const messagesEl = document.getElementById('messages');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const threadSelect = document.getElementById('thread-select');
+    const btnNew = document.getElementById('btnNew');
+    const btnTest = document.getElementById('btnTest');
+    const btnSettings = document.getElementById('btnSettings');
+    
+    let threads = [];
+    let currentThreadId = null;
+    let isLoading = false;
 
-let threads = [];
-let currentThreadId = null;
+    function log(msg) {
+        console.log('[AI Agent UI]', msg);
+    }
 
-function escapeHtml(text) {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function renderMarkdown(text) {
-    // Code blocks with copy button
-    text = text.replace(/\`\`\`(\w*)\n([\s\S]*?)\`\`\`/g, (match, lang, code) => {
-        const escaped = escapeHtml(code.trim());
-        const langLabel = lang || 'code';
-        return '<div class="code-block"><div class="code-header"><span class="code-lang">' + langLabel + '</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>' + escaped + '</code></pre></div>';
-    });
-    // Inline code
-    text = text.replace(/\`([^\`]+)\`/g, '<code class="inline-code">$1</code>');
-    // Bold
-    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    // Line breaks
-    text = text.replace(/\n/g, '<br>');
-    return text;
-}
-
-function copyCode(btn) {
-    const code = btn.parentElement.nextElementSibling.textContent;
-    vscode.postMessage({ type: 'copyCode', code });
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 2000);
-}
-
-function addMessage(text, cls, raw = false) {
-    const div = document.createElement('div');
-    div.className = 'msg ' + cls;
-    if (raw || cls === 'tool' || cls === 'status' || cls === 'user') {
+    function addMessage(text, type) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + type;
         div.textContent = text;
-    } else {
-        div.innerHTML = renderMarkdown(text);
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
     }
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-}
 
-function setLoading(loading) {
-    sendBtn.disabled = loading;
-    stopBtn.style.display = loading ? 'inline-block' : 'none';
-    if (loading) {
-        const typing = document.createElement('div');
-        typing.className = 'msg status typing';
-        typing.id = 'typing-indicator';
-        typing.textContent = 'Thinking';
-        messages.appendChild(typing);
-        messages.scrollTop = messages.scrollHeight;
-    } else {
-        document.getElementById('typing-indicator')?.remove();
+    function setLoading(loading) {
+        isLoading = loading;
+        sendBtn.disabled = loading;
+        sendBtn.textContent = loading ? 'Sending...' : 'Send';
     }
-}
 
-function updateThreadSelect() {
-    threadSelect.innerHTML = '<option value="">New Chat</option>';
-    threads.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.title;
-        if (t.id === currentThreadId) opt.selected = true;
-        threadSelect.appendChild(opt);
+    function updateThreads() {
+        threadSelect.innerHTML = '<option value="">New Chat</option>';
+        threads.forEach(function(t) {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.title || 'Untitled';
+            if (t.id === currentThreadId) opt.selected = true;
+            threadSelect.appendChild(opt);
+        });
+    }
+
+    function send() {
+        const text = inputEl.value.trim();
+        if (!text || isLoading) return;
+        log('Sending: ' + text.substring(0, 50));
+        addMessage(text, 'user');
+        vscode.postMessage({ type: 'send', text: text });
+        inputEl.value = '';
+        setLoading(true);
+    }
+
+    // Event listeners
+    sendBtn.addEventListener('click', function() {
+        log('Send button clicked');
+        send();
     });
-}
 
-function send() {
-    const text = input.value.trim();
-    if (!text) return;
-    addMessage(text, 'user');
-    vscode.postMessage({ type: 'send', text });
-    input.value = '';
-    setLoading(true);
-}
-
-newBtn.onclick = () => {
-    messages.innerHTML = '';
-    currentThreadId = null;
-    threadSelect.value = '';
-    vscode.postMessage({ type: 'newThread' });
-};
-
-exportBtn.onclick = () => vscode.postMessage({ type: 'exportChat' });
-testBtn.onclick = () => vscode.postMessage({ type: 'testConnection' });
-
-deleteBtn.onclick = () => {
-    if (currentThreadId && confirm('Delete this chat?')) {
-        vscode.postMessage({ type: 'deleteThread', id: currentThreadId });
-        messages.innerHTML = '';
-        currentThreadId = null;
-    }
-};
-
-threadSelect.onchange = () => {
-    const id = threadSelect.value;
-    if (id) {
-        currentThreadId = id;
-        messages.innerHTML = '';
-        vscode.postMessage({ type: 'loadThread', id });
-    } else {
-        messages.innerHTML = '';
-        currentThreadId = null;
-        vscode.postMessage({ type: 'newThread' });
-    }
-};
-
-stopBtn.onclick = () => vscode.postMessage({ type: 'stop' });
-settingsBtn.onclick = () => vscode.postMessage({ type: 'openSettings' });
-sendBtn.onclick = send;
-input.onkeydown = (e) => { 
-    if (e.key === 'Enter' && !e.shiftKey) { 
-        e.preventDefault(); 
-        send(); 
-    } 
-};
-
-window.addEventListener('message', (e) => {
-    const data = e.data;
-    switch (data.type) {
-        case 'response': {
-            document.getElementById('typing-indicator')?.remove();
-            let cls = 'assistant';
-            const text = data.text;
-            if (text.startsWith('🔧') || text.startsWith('   ') || text.startsWith('✓')) cls = 'tool';
-            else if (text.startsWith('[') || text.startsWith('⚠️') || text.startsWith('❌') || text.startsWith('⏹️') || text.startsWith('🚫')) cls = 'status';
-            addMessage(text, cls);
-            break;
+    inputEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
         }
-        case 'done':
-            setLoading(false);
-            vscode.postMessage({ type: 'getThreads' });
-            break;
-        case 'threadsUpdated':
-            threads = data.threads || [];
-            updateThreadSelect();
-            break;
-        case 'threadChanged':
-            currentThreadId = data.thread?.id || null;
-            updateThreadSelect();
-            break;
-        case 'threadLoaded':
-            messages.innerHTML = '';
-            (data.messages || []).forEach(m => {
-                if (m.role === 'user') addMessage(m.content, 'user');
-                else if (m.content) addMessage(m.content, 'assistant');
-            });
-            break;
-    }
-});
+    });
 
-vscode.postMessage({ type: 'getThreads' });
+    btnNew.addEventListener('click', function() {
+        log('New button clicked');
+        messagesEl.innerHTML = '';
+        currentThreadId = null;
+        threadSelect.value = '';
+        vscode.postMessage({ type: 'newThread' });
+    });
+
+    btnTest.addEventListener('click', function() {
+        log('Test button clicked');
+        addMessage('Testing connection...', 'status');
+        vscode.postMessage({ type: 'testConnection' });
+    });
+
+    btnSettings.addEventListener('click', function() {
+        log('Settings button clicked');
+        vscode.postMessage({ type: 'openSettings' });
+    });
+
+    threadSelect.addEventListener('change', function() {
+        const id = threadSelect.value;
+        log('Thread changed: ' + id);
+        if (id) {
+            currentThreadId = id;
+            messagesEl.innerHTML = '';
+            vscode.postMessage({ type: 'loadThread', id: id });
+        } else {
+            messagesEl.innerHTML = '';
+            currentThreadId = null;
+            vscode.postMessage({ type: 'newThread' });
+        }
+    });
+
+    // Message handler
+    window.addEventListener('message', function(event) {
+        const data = event.data;
+        log('Received: ' + data.type);
+        
+        switch (data.type) {
+            case 'response':
+                var cls = 'assistant';
+                var text = data.text || '';
+                if (text.indexOf('Tool:') === 0 || text.indexOf('   ') === 0) cls = 'tool';
+                else if (text.indexOf('[') === 0 || text.indexOf('Testing') === 0 || text.indexOf('SUCCESS') === 0 || text.indexOf('FAILED') === 0 || text.indexOf('Error') === 0) cls = 'status';
+                addMessage(text, cls);
+                break;
+            case 'done':
+                setLoading(false);
+                vscode.postMessage({ type: 'getThreads' });
+                break;
+            case 'threadsUpdated':
+                threads = data.threads || [];
+                updateThreads();
+                break;
+            case 'threadChanged':
+                currentThreadId = data.thread ? data.thread.id : null;
+                updateThreads();
+                break;
+            case 'threadLoaded':
+                messagesEl.innerHTML = '';
+                (data.messages || []).forEach(function(m) {
+                    if (m.role === 'user') addMessage(m.content, 'user');
+                    else if (m.content) addMessage(m.content, 'assistant');
+                });
+                break;
+        }
+    });
+
+    // Initialize
+    log('Initializing...');
+    vscode.postMessage({ type: 'getThreads' });
+    addMessage('AI Agent ready. Click "Test" to verify LM Studio connection.', 'status');
+})();
 </script>
 </body>
 </html>`;
@@ -384,7 +438,7 @@ vscode.postMessage({ type: 'getThreads' });
 
     async sendMessage(text: string) {
         this.setStatus('thinking');
-        this.postMessage({ type: 'response', text: `You: ${text}` });
+        this.postMessage({ type: 'response', text: 'You: ' + text });
         try {
             await this.agent.chat(text);
         } catch (e) {
