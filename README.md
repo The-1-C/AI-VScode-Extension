@@ -52,9 +52,24 @@ Press **F5** in VS Code to launch extension in debug mode.
 - **⏹** button - Stop generation
 - **⚙** button - Open settings
 
+### Keyboard Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+A` | Open chat panel |
+| `Ctrl+Shift+F` | Fix current file |
+| `Ctrl+Shift+E` | Explain selection |
+| `Ctrl+Shift+R` | Refactor selection |
+
 ### Context Menu (right-click in editor)
 - **Ask About Selection** - Ask AI about highlighted code
-- **Fix Current File** - Auto-fix errors in current file
+- **Explain Selection** - Get detailed explanation
+- **Refactor Selection** - Improve code quality
+- **Generate Tests** - Create unit tests
+- **Add Documentation** - Add JSDoc/docstrings
+- **Fix Current File** - Auto-fix errors
+
+### Source Control
+- **Generate Commit Message** - AI writes commit message from staged diff
 
 ### Agent Tools
 The AI can use these tools:
@@ -66,6 +81,7 @@ The AI can use these tools:
 - `run_command` - Execute shell commands
 - `remember` / `recall` / `forget` - Persistent memory
 - `undo` - Undo last file change
+- `git_status` / `git_diff` / `git_log` - Git integration
 
 ## Safety Features
 
@@ -92,6 +108,8 @@ Open settings with **⚙** button or `Ctrl+,` → search "ai-agent"
 | `systemPromptAddition` | `""` | Custom instructions |
 | `confirmBeforeWrite` | `false` | Ask before writing files |
 | `backupBeforeWrite` | `true` | Backup files before overwriting |
+| `autoFixOnSave` | `false` | Offer to fix errors on save |
+| `includeContext` | `true` | Auto-include current file in requests |
 
 ### Using with Other Providers
 

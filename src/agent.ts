@@ -40,6 +40,11 @@ MEMORY (persists across sessions):
 - recall() - Retrieve all remembered facts
 - forget(index) - Remove a remembered fact by index
 
+GIT:
+- git_status() - Get git status
+- git_diff(staged?) - Get git diff (staged=true for staged changes)
+- git_log(count?) - Get recent commits
+
 SYSTEM:
 - run_command(cmd) - Run shell command (dangerous commands are blocked)
 - undo() - Undo the last file change
@@ -223,6 +228,40 @@ const TOOLS = [
             name: 'undo',
             description: 'Undo the last file change made by the agent',
             parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'git_status',
+            description: 'Get git status of the workspace',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'git_diff',
+            description: 'Get git diff',
+            parameters: {
+                type: 'object',
+                properties: { 
+                    staged: { type: 'boolean', description: 'If true, show staged changes only' }
+                }
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'git_log',
+            description: 'Get recent git commits',
+            parameters: {
+                type: 'object',
+                properties: { 
+                    count: { type: 'number', description: 'Number of commits to show (default: 10)' }
+                }
+            }
         }
     }
 ];
@@ -525,6 +564,46 @@ export class Agent {
                 case 'undo': {
                     const result = this.safety.undoLastChange();
                     return result.success ? `✓ ${result.message}` : `Error: ${result.message}`;
+                }
+                case 'git_status': {
+                    try {
+                        const result = cp.execSync('git status --short', {
+                            cwd: this.workspaceRoot,
+                            encoding: 'utf-8',
+                            timeout: 10000
+                        });
+                        return result || '(clean working tree)';
+                    } catch (e: any) {
+                        return `Git error: ${e.message}`;
+                    }
+                }
+                case 'git_diff': {
+                    try {
+                        const cmd = args.staged ? 'git diff --staged' : 'git diff';
+                        const result = cp.execSync(cmd, {
+                            cwd: this.workspaceRoot,
+                            encoding: 'utf-8',
+                            timeout: 10000,
+                            maxBuffer: 1024 * 1024
+                        });
+                        if (!result.trim()) return args.staged ? 'No staged changes' : 'No unstaged changes';
+                        return result.slice(0, 5000) + (result.length > 5000 ? '\n... (truncated)' : '');
+                    } catch (e: any) {
+                        return `Git error: ${e.message}`;
+                    }
+                }
+                case 'git_log': {
+                    try {
+                        const count = args.count || 10;
+                        const result = cp.execSync(`git log --oneline -n ${count}`, {
+                            cwd: this.workspaceRoot,
+                            encoding: 'utf-8',
+                            timeout: 10000
+                        });
+                        return result || 'No commits yet';
+                    } catch (e: any) {
+                        return `Git error: ${e.message}`;
+                    }
                 }
                 case 'get_active_file': {
                     const editor = vscode.window.activeTextEditor;

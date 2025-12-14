@@ -48,6 +48,26 @@
         "title": "AI Agent: Ask About Selection"
       },
       {
+        "command": "ai-agent.explainSelection",
+        "title": "AI Agent: Explain Selection"
+      },
+      {
+        "command": "ai-agent.refactorSelection",
+        "title": "AI Agent: Refactor Selection"
+      },
+      {
+        "command": "ai-agent.addTests",
+        "title": "AI Agent: Generate Tests"
+      },
+      {
+        "command": "ai-agent.addDocs",
+        "title": "AI Agent: Add Documentation"
+      },
+      {
+        "command": "ai-agent.gitCommitMessage",
+        "title": "AI Agent: Generate Commit Message"
+      },
+      {
         "command": "ai-agent.stop",
         "title": "AI Agent: Stop"
       }
@@ -57,6 +77,24 @@
         "command": "ai-agent.chat",
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a"
+      },
+      {
+        "command": "ai-agent.fixFile",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ai-agent.explainSelection",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "ai-agent.refactorSelection",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorHasSelection"
       }
     ],
     "menus": {
@@ -64,11 +102,37 @@
         {
           "command": "ai-agent.askAboutSelection",
           "when": "editorHasSelection",
-          "group": "ai-agent"
+          "group": "ai-agent@1"
+        },
+        {
+          "command": "ai-agent.explainSelection",
+          "when": "editorHasSelection",
+          "group": "ai-agent@2"
+        },
+        {
+          "command": "ai-agent.refactorSelection",
+          "when": "editorHasSelection",
+          "group": "ai-agent@3"
+        },
+        {
+          "command": "ai-agent.addTests",
+          "when": "editorHasSelection",
+          "group": "ai-agent@4"
+        },
+        {
+          "command": "ai-agent.addDocs",
+          "when": "editorHasSelection",
+          "group": "ai-agent@5"
         },
         {
           "command": "ai-agent.fixFile",
-          "group": "ai-agent"
+          "group": "ai-agent@6"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "ai-agent.gitCommitMessage",
+          "group": "navigation"
         }
       ]
     },
@@ -126,6 +190,16 @@
           "type": "boolean",
           "default": true,
           "description": "Create backup before overwriting files"
+        },
+        "ai-agent.autoFixOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Offer to auto-fix errors when saving files"
+        },
+        "ai-agent.includeContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically include current file context in requests"
         }
       }
     }
