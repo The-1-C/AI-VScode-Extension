@@ -27,13 +27,26 @@ A local LLM-powered coding agent that runs inside VS Code. Works with LM Studio,
 install.bat
 ```
 
-### Option 2: Manual install
-```bash
-npm install
-npm run compile
-npx vsce package --no-dependencies
-code --install-extension ai-agent-0.0.1.vsix --force
-```
+### Option 2: Manual Install in VS Code
+
+1. **Build the extension:**
+   ```bash
+   npm install
+   npm run compile
+   npx vsce package --no-dependencies --skip-license
+   ```
+
+2. **Install the .vsix file:**
+   - Open VS Code
+   - Press `Ctrl+Shift+X` to open Extensions
+   - Click the `...` menu (top right of Extensions panel)
+   - Select **"Install from VSIX..."**
+   - Navigate to `ai-agent-0.0.1.vsix` and select it
+   - Click **Install**
+
+3. **Restart VS Code**
+
+4. **Look for the robot icon** 🤖 in the left sidebar (Activity Bar)
 
 ### Option 3: Development mode
 Press **F5** in VS Code to launch extension in debug mode.
