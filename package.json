@@ -204,6 +204,18 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically include current file context in requests"
+        },
+        "ai-agent.maxContextMessages": {
+          "type": "number",
+          "default": 20,
+          "minimum": 6,
+          "maximum": 100,
+          "description": "Max messages to send to LLM (older ones are summarized)"
+        },
+        "ai-agent.maxToolResultLength": {
+          "type": "number",
+          "default": 2000,
+          "description": "Max characters for tool results (larger results are truncated)"
         }
       }
     }

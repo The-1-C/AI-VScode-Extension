@@ -29,11 +29,17 @@ export class Storage {
     }
 
     private ensureDirs() {
-        if (!fs.existsSync(this.storageDir)) {
-            fs.mkdirSync(this.storageDir, { recursive: true });
-        }
-        if (!fs.existsSync(this.threadsDir)) {
-            fs.mkdirSync(this.threadsDir, { recursive: true });
+        try {
+            if (!fs.existsSync(this.storageDir)) {
+                fs.mkdirSync(this.storageDir, { recursive: true });
+                console.log('[AI Agent Storage] Created storage dir:', this.storageDir);
+            }
+            if (!fs.existsSync(this.threadsDir)) {
+                fs.mkdirSync(this.threadsDir, { recursive: true });
+                console.log('[AI Agent Storage] Created threads dir:', this.threadsDir);
+            }
+        } catch (err) {
+            console.error('[AI Agent Storage] Failed to create directories:', err);
         }
     }
 
@@ -43,8 +49,14 @@ export class Storage {
     }
 
     saveThread(thread: Thread): void {
-        const filePath = path.join(this.threadsDir, `${thread.id}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(thread, null, 2), 'utf-8');
+        try {
+            this.ensureDirs();
+            const filePath = path.join(this.threadsDir, `${thread.id}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(thread, null, 2), 'utf-8');
+            console.log('[AI Agent Storage] Saved thread:', thread.id);
+        } catch (err) {
+            console.error('[AI Agent Storage] Failed to save thread:', err);
+        }
     }
 
     loadThread(id: string): Thread | null {

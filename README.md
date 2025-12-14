@@ -2,6 +2,8 @@
 
 A local LLM-powered coding agent that runs inside VS Code. Works with LM Studio, Ollama, or any OpenAI-compatible API.
 
+> **⚠️ Disclaimer**: This extension was written entirely by AI (Claude/Anthropic) through conversational prompting. Use at your own risk. Review the code before using in production environments.
+
 ## Features
 
 - 🤖 **AI Chat Panel** - Sidebar chat interface like GitHub Copilot
@@ -143,6 +145,8 @@ Open settings with **⚙** button or `Ctrl+,` → search "ai-agent"
 | `backupBeforeWrite` | `true` | Backup files before overwriting |
 | `autoFixOnSave` | `false` | Offer to fix errors on save |
 | `includeContext` | `true` | Auto-include current file in requests |
+| `maxContextMessages` | `20` | Max messages sent to LLM (older ones summarized) |
+| `maxToolResultLength` | `2000` | Max chars for tool results (larger truncated) |
 
 ### Using with Other Providers
 
@@ -176,6 +180,18 @@ All data is stored in `.ai-agent/` in your workspace:
 **Slow responses**
 - Try a smaller model or increase timeout in settings
 
+## Context Management
+
+For models with limited context windows (e.g., 4096 tokens):
+- Set `maxContextMessages` to 10-12 to prevent loops
+- Older messages are automatically summarized
+- Tool results are truncated to save tokens
+- Console shows: `Messages: 12 (full: 35)` = 12 sent, 35 in history
+
 ## License
 
 MIT
+
+---
+
+*Built with AI assistance by Claude (Anthropic)*

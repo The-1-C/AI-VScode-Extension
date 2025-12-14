@@ -18,52 +18,55 @@ interface Message {
     tool_call_id?: string;
 }
 
-const SYSTEM_PROMPT = `You are an AI coding agent inside VS Code, similar to GitHub Copilot or Cursor. You help users write, fix, and understand code.
+const SYSTEM_PROMPT = `You are an AI coding agent inside VS Code. You take ACTION using tools - you don't just explain things.
 
-AVAILABLE TOOLS:
+CRITICAL RULES:
+1. When asked to create/edit/fix a file, USE write_file immediately. Don't just explain.
+2. When fixing errors, read the file first, then write_file with the COMPLETE corrected content.
+3. Never respond with just explanations - always take action with tools.
+4. Do NOT prefix responses with "THOUGHT:" - just act.
 
-FILE OPERATIONS:
-- list_files(path?, recursive?) - List files in directory
-- read_file(path) - Read a file's contents
-- write_file(path, content) - Write/overwrite file with COMPLETE content
+TOOLS:
+
+FILES:
+- list_files(path?, recursive?) - List directory contents
+- read_file(path) - Read file contents (DO THIS BEFORE EDITING)
+- write_file(path, content) - Write COMPLETE file content (creates or overwrites)
 - delete_file(path) - Delete a file
-- search_files(query, path?, filePattern?) - Search for text in files
+- search_files(query, path?, filePattern?) - Search text in files
 
-EDITOR OPERATIONS:
-- get_active_file() - Get currently open file path and content
-- get_selection() - Get selected text in editor
-- replace_selection(text) - Replace selection with new text
-- insert_text(text) - Insert text at cursor
-- get_diagnostics(path?) - Get VS Code errors/warnings
+EDITOR:
+- get_active_file() - Get current open file
+- get_selection() - Get selected text
+- replace_selection(text) - Replace selection
+- insert_text(text) - Insert at cursor
+- get_diagnostics(path?) - Get errors/warnings
 
-MEMORY (persists across sessions):
-- remember(fact) - Store an important fact for future reference
-- recall() - Retrieve all remembered facts
-- forget(index) - Remove a remembered fact by index
+MEMORY:
+- remember(fact) - Store fact for future sessions
+- recall() - Get all remembered facts
+- forget(index) - Remove a fact
 
 CONTEXT:
-- get_open_files() - Get list of all open editor tabs
-- get_project_structure() - Get project file tree structure
-- get_file_outline(path) - Get symbols/outline of a file
-- find_file(name) - Fast search for files by name
-- get_cache_stats() - Show cache statistics
+- get_open_files() - List open tabs
+- get_project_structure() - Get file tree
+- get_file_outline(path) - Get symbols in file
+- find_file(name) - Search for files by name
 
 GIT:
-- git_status() - Get git status
-- git_diff(staged?) - Get git diff (staged=true for staged changes)
-- git_log(count?) - Get recent commits
+- git_status() - Get status
+- git_diff(staged?) - Get diff
+- git_log(count?) - Get commits
 
 SYSTEM:
-- run_command(cmd) - Run shell command (dangerous commands are blocked)
-- undo() - Undo the last file change
+- run_command(cmd) - Run shell command
+- undo() - Undo last file change
 
-GUIDELINES:
-1. Read files before modifying them
-2. Use get_diagnostics() to find errors
-3. When writing files, include COMPLETE content
-4. Use remember() to save important project context
-5. For small edits, prefer replace_selection() over rewriting entire files
-6. Be concise but helpful in responses`;
+WORKFLOW FOR EDITING:
+1. read_file(path) to get current content
+2. write_file(path, corrected_content) with the FULL fixed file
+
+Be concise. Take action. Use tools.`;
 
 const TOOLS = [
     {
@@ -449,8 +452,66 @@ export class Agent {
             systemPromptAddition: config.get<string>('systemPromptAddition') || '',
             showToolCalls: config.get<boolean>('showToolCalls') ?? true,
             confirmBeforeWrite: config.get<boolean>('confirmBeforeWrite') ?? false,
-            backupBeforeWrite: config.get<boolean>('backupBeforeWrite') ?? true
+            backupBeforeWrite: config.get<boolean>('backupBeforeWrite') ?? true,
+            maxContextMessages: config.get<number>('maxContextMessages') ?? 20,
+            maxToolResultLength: config.get<number>('maxToolResultLength') ?? 2000
         };
+    }
+
+    // Estimate tokens (rough: ~4 chars per token)
+    private estimateTokens(text: string): number {
+        return Math.ceil(text.length / 4);
+    }
+
+    // Compress messages to fit context window
+    private compressMessages(messages: Message[], maxMessages: number): Message[] {
+        if (messages.length <= maxMessages + 1) return messages;
+        
+        const systemMsg = messages[0]; // Keep system prompt
+        const recentMessages = messages.slice(-maxMessages);
+        
+        // Summarize older messages
+        const oldMessages = messages.slice(1, -maxMessages);
+        if (oldMessages.length > 0) {
+            const summary = this.summarizeMessages(oldMessages);
+            return [
+                systemMsg,
+                { role: 'system', content: `[Previous context summary: ${summary}]` },
+                ...recentMessages
+            ];
+        }
+        
+        return [systemMsg, ...recentMessages];
+    }
+
+    private summarizeMessages(messages: Message[]): string {
+        const actions: string[] = [];
+        for (const msg of messages) {
+            if (msg.role === 'user') {
+                actions.push(`User asked: ${msg.content?.slice(0, 50)}...`);
+            } else if (msg.role === 'assistant' && msg.tool_calls) {
+                for (const tc of msg.tool_calls) {
+                    const args = JSON.parse(tc.function.arguments || '{}');
+                    if (tc.function.name === 'write_file') {
+                        actions.push(`Wrote file: ${args.path}`);
+                    } else if (tc.function.name === 'read_file') {
+                        actions.push(`Read file: ${args.path}`);
+                    } else {
+                        actions.push(`Called ${tc.function.name}`);
+                    }
+                }
+            }
+        }
+        return actions.slice(-5).join('; ') || 'Previous conversation';
+    }
+
+    // Truncate long tool results to save tokens
+    private truncateToolResult(result: string, maxLen: number = 2000): string {
+        if (result.length <= maxLen) return result;
+        
+        // For file contents, keep start and end
+        const half = Math.floor(maxLen / 2) - 20;
+        return result.slice(0, half) + '\n\n[... truncated ...]\n\n' + result.slice(-half);
     }
 
     async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -485,21 +546,23 @@ export class Agent {
     private async callLLM(): Promise<any> {
         const config = this.getConfig();
         this.abortController = new AbortController();
-        this.log(`[Connecting to ${config.apiUrl}...]`);
         
         const timeoutId = setTimeout(() => this.abortController?.abort(), config.timeout);
         
         try {
+            // Compress messages to fit context window
+            const compressedMessages = this.compressMessages(this.messages, config.maxContextMessages);
+            
             const body = {
                 model: config.model,
-                messages: this.messages,
+                messages: compressedMessages,
                 tools: TOOLS,
                 tool_choice: 'auto',
                 temperature: config.temperature,
                 max_tokens: config.maxTokens
             };
             
-            console.log('[AI Agent] Request:', config.apiUrl, 'Messages:', this.messages.length);
+            console.log('[AI Agent] Request:', config.apiUrl, 'Messages:', compressedMessages.length, '(full:', this.messages.length + ')');
             
             const response = await fetch(config.apiUrl, {
                 method: 'POST',
@@ -515,7 +578,14 @@ export class Agent {
             }
             
             const data: any = await response.json();
-            console.log('[AI Agent] Response received:', data.choices?.[0]?.message?.content?.slice(0, 100) || 'tool call');
+            const msg = data.choices?.[0]?.message;
+            if (msg?.tool_calls?.length) {
+                console.log('[AI Agent] Response: tool_calls =', msg.tool_calls.map((tc: any) => tc.function?.name).join(', '));
+            } else if (msg?.content) {
+                console.log('[AI Agent] Response: content =', msg.content.slice(0, 100));
+            } else {
+                console.log('[AI Agent] Response: unexpected format', JSON.stringify(data).slice(0, 200));
+            }
             return data;
         } finally {
             clearTimeout(timeoutId);
@@ -661,7 +731,17 @@ export class Agent {
                     return content;
                 }
                 case 'write_file': {
+                    console.log('[AI Agent] write_file called with args:', JSON.stringify(args));
+                    
+                    if (!args.path) {
+                        return 'Error: path is required';
+                    }
+                    if (args.content === undefined || args.content === null) {
+                        return 'Error: content is required';
+                    }
+                    
                     const filePath = this.resolvePath(args.path);
+                    console.log('[AI Agent] Resolved path:', filePath);
                     
                     const pathCheck = this.safety.isPathSafe(filePath);
                     if (!pathCheck.safe) return `Error: ${pathCheck.reason}`;
@@ -679,12 +759,19 @@ export class Agent {
                         await this.safety.backupFile(filePath);
                     }
                     
-                    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-                    fs.writeFileSync(filePath, args.content, 'utf-8');
+                    try {
+                        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                        fs.writeFileSync(filePath, args.content, 'utf-8');
+                        console.log('[AI Agent] File written successfully:', filePath);
+                    } catch (writeErr: any) {
+                        console.error('[AI Agent] Write error:', writeErr);
+                        return `Error writing file: ${writeErr.message}`;
+                    }
                     
                     this.safety.recordChange(filePath, oldContent, args.content);
+                    this.cache.invalidate(filePath);
                     
-                    return `✓ Written: ${args.path}`;
+                    return `✓ File written successfully: ${args.path}. Task complete.`;
                 }
                 case 'delete_file': {
                     const filePath = this.resolvePath(args.path);
@@ -871,8 +958,10 @@ export class Agent {
 
     async chat(userMessage: string): Promise<void> {
         this.messages.push({ role: 'user', content: userMessage });
+        let lastToolCall = '';
+        let repeatCount = 0;
 
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 10; i++) {
             let res: any;
             try {
                 res = await this.callLLM();
@@ -900,7 +989,28 @@ export class Agent {
                 for (const tc of msg.tool_calls) {
                     const name = tc.function.name;
                     let args: Record<string, any> = {};
-                    try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
+                    try { 
+                        args = JSON.parse(tc.function.arguments || '{}'); 
+                    } catch (parseErr) {
+                        console.error('[AI Agent] Failed to parse tool arguments:', tc.function.arguments, parseErr);
+                    }
+                    
+                    // Detect repeated identical tool calls
+                    const callSig = `${name}:${args.path || ''}`;
+                    if (callSig === lastToolCall) {
+                        repeatCount++;
+                        if (repeatCount >= 2) {
+                            console.log('[AI Agent] Breaking loop: repeated tool call detected');
+                            this.log('Done.');
+                            this.saveCurrentThread();
+                            return;
+                        }
+                    } else {
+                        lastToolCall = callSig;
+                        repeatCount = 0;
+                    }
+                    
+                    console.log('[AI Agent] Tool call:', name, 'Args:', JSON.stringify(args).slice(0, 200));
                     
                     const argStr = Object.entries(args)
                         .filter(([k]) => k !== 'content')
@@ -912,7 +1022,10 @@ export class Agent {
                     const preview = result.length > 400 ? result.slice(0, 400) + '...' : result;
                     this.logTool(`   ${preview}`);
                     
-                    this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+                    // Truncate large results to save context
+                    const config = this.getConfig();
+                    const truncatedResult = this.truncateToolResult(result, config.maxToolResultLength);
+                    this.messages.push({ role: 'tool', tool_call_id: tc.id, content: truncatedResult });
                 }
                 continue;
             }
